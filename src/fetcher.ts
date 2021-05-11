@@ -8,6 +8,7 @@ import invariant from 'tiny-invariant'
 import ERC20 from './abis/ERC20.json'
 import { ChainId } from './constants'
 import { Token } from './entities/token'
+import {PancakeVersion} from './entities/pancakeversion'
 
 let TOKEN_DECIMALS_CACHE: { [chainId: number]: { [address: string]: number } } = {
   [ChainId.MAINNET]: {
@@ -64,12 +65,13 @@ export abstract class Fetcher {
   public static async fetchPairData(
     tokenA: Token,
     tokenB: Token,
+    version: PancakeVersion,
     provider = getDefaultProvider(getNetwork(tokenA.chainId))
   ): Promise<Pair> {
     invariant(tokenA.chainId === tokenB.chainId, 'CHAIN_ID')
-    const address = Pair.getAddress(tokenA, tokenB)
+    const address = Pair.getAddress(tokenA, tokenB, version)
     const [reserves0, reserves1] = await new Contract(address, IPancakePair.abi, provider).getReserves()
     const balances = tokenA.sortsBefore(tokenB) ? [reserves0, reserves1] : [reserves1, reserves0]
-    return new Pair(new TokenAmount(tokenA, balances[0]), new TokenAmount(tokenB, balances[1]))
+    return new Pair(new TokenAmount(tokenA, balances[0]), new TokenAmount(tokenB, balances[1]), version)
   }
 }

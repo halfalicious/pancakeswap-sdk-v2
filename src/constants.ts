@@ -1,3 +1,4 @@
+import { PancakeVersion } from './entities/pancakeversion'
 import JSBI from 'jsbi'
 
 // exports for external consumption
@@ -19,9 +20,55 @@ export enum Rounding {
   ROUND_UP
 }
 
-export const FACTORY_ADDRESS = '0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73'
+export function getFactoryAddress(version: PancakeVersion) {
+  switch (version) {
+    case PancakeVersion.v1:
+      return FACTORY_ADDRESS_V1;
+    case PancakeVersion.v2:
+      return FACTORY_ADDRESS_V2;
+    default:
+      throw new Error(`Unknown version: ${version.toString()}`);
+  }
+}
 
-export const INIT_CODE_HASH = '0x00fb7f630766e6a796048ea87d01acd3068e8ff67d078148a3fa3f4a84f69bd5'
+export function getInitCodeHash(version: PancakeVersion) {
+  switch (version) {
+    case PancakeVersion.v1:
+      return INIT_CODE_HASH_V1;
+    case PancakeVersion.v2:
+      return INIT_CODE_HASH_V2;
+    default:
+      throw new Error(`Unknown version: ${version.toString()}`);
+  }
+}
+
+export function getFeesNumerator(version: PancakeVersion): JSBI {
+  switch (version) {
+    case PancakeVersion.v1:
+      return _998;
+    case PancakeVersion.v2:
+      return _9975;
+    default:
+      throw new Error(`Unknown version: ${version.toString()}`);
+  }
+}
+
+export function getFeesDenominator(version: PancakeVersion): JSBI {
+  switch (version) {
+    case PancakeVersion.v1:
+      return _1000;
+    case PancakeVersion.v2:
+      return _10000;
+    default:
+      throw new Error(`Unknown version: ${version.toString()}`);
+  }
+}
+
+export const FACTORY_ADDRESS_V1 = '0xBCfCcbde45cE874adCB698cC183deBcF17952812'
+export const FACTORY_ADDRESS_V2 = '0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73'
+
+export const INIT_CODE_HASH_V1 = '0xd0d4c4cd0848c93cb4fd1f498d7013ee6bfb25783ea21593d5834f5d250ece66'
+export const INIT_CODE_HASH_V2 = '0x00fb7f630766e6a796048ea87d01acd3068e8ff67d078148a3fa3f4a84f69bd5'
 
 export const MINIMUM_LIQUIDITY = JSBI.BigInt(1000)
 
@@ -33,8 +80,10 @@ export const THREE = JSBI.BigInt(3)
 export const FIVE = JSBI.BigInt(5)
 export const TEN = JSBI.BigInt(10)
 export const _100 = JSBI.BigInt(100)
-export const FEES_NUMERATOR = JSBI.BigInt(9975)
-export const FEES_DENOMINATOR = JSBI.BigInt(10000)
+export const _998 = JSBI.BigInt(998)
+export const _1000 = JSBI.BigInt(1000)
+export const _9975 = JSBI.BigInt(9975)
+export const _10000 = JSBI.BigInt(10000)
 
 export enum SolidityType {
   uint8 = 'uint8',

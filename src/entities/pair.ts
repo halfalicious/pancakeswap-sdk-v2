@@ -1,64 +1,93 @@
 import { Price } from './fractions/price'
 import { TokenAmount } from './fractions/tokenAmount'
+import { PancakeVersion } from './pancakeversion'
 import invariant from 'tiny-invariant'
 import JSBI from 'jsbi'
 import { pack, keccak256 } from '@ethersproject/solidity'
 import { getCreate2Address } from '@ethersproject/address'
-
+import { getFeesDenominator, getFeesNumerator, getInitCodeHash, getFactoryAddress } from '../constants'
 import {
   BigintIsh,
-  FACTORY_ADDRESS,
-  INIT_CODE_HASH,
   MINIMUM_LIQUIDITY,
   ZERO,
   ONE,
   FIVE,
-  FEES_NUMERATOR,
-  FEES_DENOMINATOR,
+  _9975,
+  _998,
+  _1000,
+  _10000,
   ChainId
 } from '../constants'
 import { sqrt, parseBigintIsh } from '../utils'
 import { InsufficientReservesError, InsufficientInputAmountError } from '../errors'
 import { Token } from './token'
 
-let PAIR_ADDRESS_CACHE: { [token0Address: string]: { [token1Address: string]: string } } = {}
+let PAIR_ADDRESS_CACHE_V1: { [token0Address: string]: { [token1Address: string]: string } } = {}
+let PAIR_ADDRESS_CACHE_V2: { [token0Address: string]: { [token1Address: string]: string } } = {}
+
+function getPairAddressCache(version: PancakeVersion) {
+  switch (version) {
+    case PancakeVersion.v1:
+      return PAIR_ADDRESS_CACHE_V1;
+    case PancakeVersion.v2:
+      return PAIR_ADDRESS_CACHE_V2;
+    default:
+      throw new Error(`Unknown version: ${version.toString()}`);
+  }
+}
+
+function setPairAddressCache(version: PancakeVersion, pairAddressCache: any) {
+  switch (version) {
+    case PancakeVersion.v1:
+      PAIR_ADDRESS_CACHE_V1 = pairAddressCache;
+      break;
+    case PancakeVersion.v2:
+      PAIR_ADDRESS_CACHE_V2 = pairAddressCache;
+      break;
+    default:
+      throw new Error(`Unknown version: ${version.toString()}`);
+  }
+}
 
 export class Pair {
   public readonly liquidityToken: Token
+  public readonly version: PancakeVersion
   private readonly tokenAmounts: [TokenAmount, TokenAmount]
-
-  public static getAddress(tokenA: Token, tokenB: Token): string {
+  public static getAddress(tokenA: Token, tokenB: Token, version: PancakeVersion): string {
     const tokens = tokenA.sortsBefore(tokenB) ? [tokenA, tokenB] : [tokenB, tokenA] // does safety checks
 
-    if (PAIR_ADDRESS_CACHE?.[tokens[0].address]?.[tokens[1].address] === undefined) {
-      PAIR_ADDRESS_CACHE = {
-        ...PAIR_ADDRESS_CACHE,
+    let cache = getPairAddressCache(version);
+    if (getPairAddressCache(version)?.[tokens[0].address]?.[tokens[1].address] === undefined) {
+      cache = {
+        ...cache,
         [tokens[0].address]: {
-          ...PAIR_ADDRESS_CACHE?.[tokens[0].address],
+          ...cache?.[tokens[0].address],
           [tokens[1].address]: getCreate2Address(
-            FACTORY_ADDRESS,
+            getFactoryAddress(version),
             keccak256(['bytes'], [pack(['address', 'address'], [tokens[0].address, tokens[1].address])]),
-            INIT_CODE_HASH
+            getInitCodeHash(version)
           )
         }
       }
+      setPairAddressCache(version, cache);
     }
 
-    return PAIR_ADDRESS_CACHE[tokens[0].address][tokens[1].address]
+    return cache[tokens[0].address][tokens[1].address]
   }
 
-  public constructor(tokenAmountA: TokenAmount, tokenAmountB: TokenAmount) {
+  public constructor(tokenAmountA: TokenAmount, tokenAmountB: TokenAmount, version: PancakeVersion) {
     const tokenAmounts = tokenAmountA.token.sortsBefore(tokenAmountB.token) // does safety checks
       ? [tokenAmountA, tokenAmountB]
       : [tokenAmountB, tokenAmountA]
     this.liquidityToken = new Token(
       tokenAmounts[0].token.chainId,
-      Pair.getAddress(tokenAmounts[0].token, tokenAmounts[1].token),
+      Pair.getAddress(tokenAmounts[0].token, tokenAmounts[1].token, version),
       18,
       'UNI-V2',
       'Uniswap V2'
     )
     this.tokenAmounts = tokenAmounts as [TokenAmount, TokenAmount]
+    this.version = version;
   }
 
   /**
@@ -127,9 +156,9 @@ export class Pair {
     }
     const inputReserve = this.reserveOf(inputAmount.token)
     const outputReserve = this.reserveOf(inputAmount.token.equals(this.token0) ? this.token1 : this.token0)
-    const inputAmountWithFee = JSBI.multiply(inputAmount.raw, FEES_NUMERATOR)
+    const inputAmountWithFee = JSBI.multiply(inputAmount.raw, getFeesNumerator(this.version))
     const numerator = JSBI.multiply(inputAmountWithFee, outputReserve.raw)
-    const denominator = JSBI.add(JSBI.multiply(inputReserve.raw, FEES_DENOMINATOR), inputAmountWithFee)
+    const denominator = JSBI.add(JSBI.multiply(inputReserve.raw, getFeesDenominator(this.version)), inputAmountWithFee)
     const outputAmount = new TokenAmount(
       inputAmount.token.equals(this.token0) ? this.token1 : this.token0,
       JSBI.divide(numerator, denominator)
@@ -137,7 +166,7 @@ export class Pair {
     if (JSBI.equal(outputAmount.raw, ZERO)) {
       throw new InsufficientInputAmountError()
     }
-    return [outputAmount, new Pair(inputReserve.add(inputAmount), outputReserve.subtract(outputAmount))]
+    return [outputAmount, new Pair(inputReserve.add(inputAmount), outputReserve.subtract(outputAmount), this.version)]
   }
 
   public getInputAmount(outputAmount: TokenAmount): [TokenAmount, Pair] {
@@ -152,13 +181,13 @@ export class Pair {
 
     const outputReserve = this.reserveOf(outputAmount.token)
     const inputReserve = this.reserveOf(outputAmount.token.equals(this.token0) ? this.token1 : this.token0)
-    const numerator = JSBI.multiply(JSBI.multiply(inputReserve.raw, outputAmount.raw), FEES_DENOMINATOR)
-    const denominator = JSBI.multiply(JSBI.subtract(outputReserve.raw, outputAmount.raw), FEES_NUMERATOR)
+    const numerator = JSBI.multiply(JSBI.multiply(inputReserve.raw, outputAmount.raw), getFeesDenominator(this.version))
+    const denominator = JSBI.multiply(JSBI.subtract(outputReserve.raw, outputAmount.raw), getFeesNumerator(this.version))
     const inputAmount = new TokenAmount(
       outputAmount.token.equals(this.token0) ? this.token1 : this.token0,
       JSBI.add(JSBI.divide(numerator, denominator), ONE)
     )
-    return [inputAmount, new Pair(inputReserve.add(inputAmount), outputReserve.subtract(outputAmount))]
+    return [inputAmount, new Pair(inputReserve.add(inputAmount), outputReserve.subtract(outputAmount), this.version)]
   }
 
   public getLiquidityMinted(
